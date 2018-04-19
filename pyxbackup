@@ -7,6 +7,7 @@
 import sys, traceback, os, errno, signal, socket
 import time, calendar, shutil, re, pwd
 import smtplib, MySQLdb, base64
+from pprint import pprint
 from datetime import datetime, timedelta
 from ConfigParser import ConfigParser, NoOptionError
 from optparse import OptionParser
@@ -2142,7 +2143,7 @@ def sizeof_fmt(num):
     return "%.1f %s" % (num, 'YB')
 
 def run_xb_cron():
-    if xb_last_full is None or xb_last_full == 'NULL':
+    if xb_last_full is None or xb_last_full == 'NULL' or xb_opt_incr_retention_sets == 0:
         xb_opt_command = XB_CMD_FULL
         run_xb_full()
     elif (xb_last_full not in xb_incr_list.keys()) or (len(xb_incr_list[xb_last_full]) < xb_opt_incr_retention_sets): 
@@ -2151,12 +2152,6 @@ def run_xb_cron():
     else:
         xb_opt_command = XB_CMD_FULL
         run_xb_full()
-
-#    list_backups()
-#    xb_opt_command = XB_CMD_PRUNE
-#    prune_full_incr()
-#    prune_weekly()
-#    prune_monthly()
 
 def run_xb_full():
     """Execute a full backup"""
@@ -2250,22 +2245,31 @@ def run_xb_incr():
 def run_xb_list():
     """List existing "valid backups"""
 
+    result_dict = {}
+
     if xb_opt_remote_push_only:
         return _ssh_execute("%s list" % xb_opt_remote_script, True)
 
     if len(xb_full_list) <= 0:
         _say("No backups currently available.")
 
-    for f in xb_full_list:
+    for i, f in enumerate(xb_full_list):
+        result_dict['backup_set'+str(i+1).zfill(2)]={}
         fsize = get_size(os.path.join(xb_stor_full, f))
+        total_size = fsize
         s = "# Full backup: %s (size: %s)" % (f, sizeof_fmt(fsize))
+        tmp_full_dict={}
+        tmp_full_dict[f]={'size': sizeof_fmt(fsize), 'incrementals': []}
         if f in xb_incr_list and xb_incr_list[f] and len(xb_incr_list[f]) > 0:
             tmpstr = []
             for incr in xb_incr_list[f]:
                 fsize = get_size(os.path.join(xb_stor_incr, f, incr))
+                total_size += fsize
                 tmpstr.append("%s (size: %s)" % (incr, sizeof_fmt(fsize)))
+                tmp_full_dict[f]['incrementals'].append({incr: {'size': sizeof_fmt(fsize)}})
             s += ", incrementals: [%s]" % (', '.join(tmpstr))
-
+        result_dict['backup_set'+str(i+1).zfill(2)].update(tmp_full_dict)
+        result_dict['backup_set'+str(i+1).zfill(2)]['total_szie']=sizeof_fmt(total_size)
         print s
 
     if xb_weekly_list is not None and len(xb_weekly_list) > 0:
@@ -2277,6 +2281,7 @@ def run_xb_list():
     if xb_binlogs_list is not None and len(xb_binlogs_list) > 0:
         print "# Binary logs from %s to %s, %d total" % (
             xb_binlogs_list[0], xb_binlogs_list[-1], len(xb_binlogs_list))
+    return result_dict
 
 def run_status():
     """Display status of last backup - excludes any currently running backup"""
@@ -3048,7 +3053,7 @@ Valid commands are:
             xb_opt_prepare_memory = int(xb_cfg.get(xb_opt_config_section, 'prepare_memory'))
 
         if xb_cfg.has_option(xb_opt_config_section, 'incr_retention_sets'):
-            if int(xb_cfg.get(xb_opt_config_section, 'incr_retention_sets')) > 0:
+            if int(xb_cfg.get(xb_opt_config_section, 'incr_retention_sets')) >= 0:
                 xb_opt_incr_retention_sets = int(xb_cfg.get(xb_opt_config_section, 'incr_retention_sets'))
 
         if xb_cfg.has_option(xb_opt_config_section, 'retention_sets'):
@@ -3651,7 +3656,7 @@ class PyxOptions(object):
                 'successful backup. (cli)'))
         parser.add_option('-e', '--restore-dir', dest='restore_dir', type="string",
             help='With command restore, specify where to restore selected backup (cli)')
-        parser.add_option('', '--retention-sets', dest='incr_retention_sets',
+        parser.add_option('', '--incr_retention-sets', dest='incr_retention_sets',
             help='How many sets of incr backup under full backup to keep on storage, default 2')
         parser.add_option('-i', '--retention-sets', dest='retention_sets',
             help='How many sets of combined full + incr to keep on storage, default 2')
