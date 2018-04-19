@@ -89,6 +89,8 @@ Below are some valid options recognized from the configuration file:
     # will be used for --use-memory option with innobackupex
     prepare_memory = 128
 
+    # How many incremental sets in a full backup
+    incr_retention_sets = 2
     # How many sets of full + incrementals to keep in stor
     retention_sets = 2
     # How many archived weekly backups are kept, unused for now
@@ -255,6 +257,11 @@ Assuming I have a very minimal ``pyxbackup.cnf`` below:
     work_dir = /sbx/msb/msb_5_6_190/bkp/work
     retention_sets = 2
 
+Running a Backup determine by retention_sets and incr_retention_sets
+---------------------
+
+    pyxbackup cron
+
 Running a Full Backup
 ---------------------
 
@@ -296,8 +303,8 @@ One Touch Prepare of Specific Backup
 For example, I have these 2 backup sets with 2 incrementals each:
 
     [revin@forge ~]$ pyxbackup list
-    # Full backup: 2014_10_15-11_32_32, incrementals: ['2014_10_15-11_34_17', '2014_10_15-11_32_41']
-    # Full backup: 2014_10_15-11_32_04, incrementals: ['2014_10_15-11_32_23', '2014_10_15-11_32_14']
+    # Full backup: 2014_10_15-11_32_32 (size: 2.1 GB), incrementals: [2014_10_15-11_34_17 (size: 3.5 MB), 2014_10_15-11_32_41 (size: 2.9 MB)]
+    # Full backup: 2014_10_15-11_32_04 (size: 1.8 GB), incrementals: [2014_10_15-11_32_23 (size: 4.2 MB), 2014_10_15-11_32_14 (size: 3.1 MB)]
 
 If I want to prepare the backup ``2014_10_15-11_32_41`` and make it ready for use, I will use the following command:
 

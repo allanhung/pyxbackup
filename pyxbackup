@@ -30,6 +30,7 @@ xb_opt_compress = False
 xb_opt_compress_with = 'gzip'
 xb_opt_apply_log = False
 xb_opt_prepare_memory = 128
+xb_opt_incr_retention_sets = 2
 xb_opt_retention_sets = 2
 xb_opt_retention_months = 0
 xb_opt_retention_weeks = 0
@@ -111,6 +112,7 @@ xb_is_last_day_of_month = False
 xb_mysqldb = None
 xb_backup_summary = None
 
+XB_CMD_CRON = 'cron'
 XB_CMD_INCR = 'incr'
 XB_CMD_FULL = 'full'
 XB_CMD_LIST = 'list'
@@ -154,7 +156,7 @@ cmd_no_log = [
     XB_CMD_LIST, XB_CMD_STAT, XB_CMD_META, XB_CMD_BINLOGS, 
     XB_CMD_PRUNE]
 cmd_no_lock = cmd_no_log
-cmd_backups = [XB_CMD_FULL, XB_CMD_INCR]
+cmd_backups = [XB_CMD_CRON, XB_CMD_FULL, XB_CMD_INCR]
 
 class PyxLanguage(object):
     dictionary = {
@@ -2119,10 +2121,42 @@ def run_xb():
     if xb_prepare_is_success and xb_backup_is_success:
         if xb_opt_remote_host:
             _ssh_execute("%s prune" % xb_opt_remote_script, True)
-
+        list_backups()
         prune_full_incr()
         prune_weekly()
         prune_monthly()
+
+def get_size(start_path = '.'):
+    total_size = 0
+    for dirpath, dirnames, filenames in os.walk(start_path):
+        for f in filenames:
+            fp = os.path.join(dirpath, f)
+            total_size += os.path.getsize(fp)
+    return total_size
+
+def sizeof_fmt(num):
+    for unit in ['','KB','MB','GB','TB','PB','EB','ZB']:
+        if abs(num) < 1024.0:
+            return "%3.1f %s" % (num, unit)
+        num /= 1024.0
+    return "%.1f %s" % (num, 'YB')
+
+def run_xb_cron():
+    if xb_last_full is None or xb_last_full == 'NULL':
+        xb_opt_command = XB_CMD_FULL
+        run_xb_full()
+    elif (xb_last_full not in xb_incr_list.keys()) or (len(xb_incr_list[xb_last_full]) < xb_opt_incr_retention_sets): 
+        xb_opt_command = XB_CMD_INCR
+        run_xb_incr()
+    else:
+        xb_opt_command = XB_CMD_FULL
+        run_xb_full()
+
+#    list_backups()
+#    xb_opt_command = XB_CMD_PRUNE
+#    prune_full_incr()
+#    prune_weekly()
+#    prune_monthly()
 
 def run_xb_full():
     """Execute a full backup"""
@@ -2223,9 +2257,14 @@ def run_xb_list():
         _say("No backups currently available.")
 
     for f in xb_full_list:
-        s = "# Full backup: " + f
+        fsize = get_size(os.path.join(xb_stor_full, f))
+        s = "# Full backup: %s (size: %s)" % (f, sizeof_fmt(fsize))
         if f in xb_incr_list and xb_incr_list[f] and len(xb_incr_list[f]) > 0:
-            s += ", incrementals: " + str(xb_incr_list[f])
+            tmpstr = []
+            for incr in xb_incr_list[f]:
+                fsize = get_size(os.path.join(xb_stor_incr, f, incr))
+                tmpstr.append("%s (size: %s)" % (incr, sizeof_fmt(fsize)))
+            s += ", incrementals: [%s]" % (', '.join(tmpstr))
 
         print s
 
@@ -2715,6 +2754,7 @@ def init():
     global xb_opt_compress_with
     global xb_opt_apply_log
     global xb_opt_prepare_memory
+    global xb_opt_incr_retention_sets
     global xb_opt_retention_sets
     global xb_opt_retention_months
     global xb_opt_retention_weeks
@@ -2856,6 +2896,8 @@ Valid commands are:
             'successful backup. (cli)'))
     parser.add_option('-e', '--restore-dir', dest='restore_dir', type="string",
         help='With command restore, specify where to restore selected backup (cli)')
+    parser.add_option('', '--incr-retention-sets', dest='incr_retention_sets',
+        help='How many sets of incr backup under full backup to keep on storage, default 2')
     parser.add_option('-i', '--retention-sets', dest='retention_sets',
         help='How many sets of combined full + incr to keep on storage, default 2')
     parser.add_option('-j', '--retention-months', dest='retention_months', type="int",
@@ -3005,6 +3047,10 @@ Valid commands are:
         if xb_cfg.has_option(xb_opt_config_section, 'prepare_memory'):
             xb_opt_prepare_memory = int(xb_cfg.get(xb_opt_config_section, 'prepare_memory'))
 
+        if xb_cfg.has_option(xb_opt_config_section, 'incr_retention_sets'):
+            if int(xb_cfg.get(xb_opt_config_section, 'incr_retention_sets')) > 0:
+                xb_opt_incr_retention_sets = int(xb_cfg.get(xb_opt_config_section, 'incr_retention_sets'))
+
         if xb_cfg.has_option(xb_opt_config_section, 'retention_sets'):
             if int(xb_cfg.get(xb_opt_config_section, 'retention_sets')) > 0:
                 xb_opt_retention_sets = int(xb_cfg.get(xb_opt_config_section, 'retention_sets'))
@@ -3074,6 +3120,8 @@ Valid commands are:
         xb_opt_restore_backup = options.restore_backup
     if options.restore_dir is not None:
         xb_opt_restore_dir = options.restore_dir
+    if options.incr_retention_sets and int(options.incr_retention_sets) > 0:
+        xb_opt_incr_retention_sets = int(options.incr_retention_sets)
     if options.retention_sets and int(options.retention_sets) > 0:
         xb_opt_retention_sets = int(options.retention_sets)
     if options.retention_months > 0:
@@ -3088,7 +3136,7 @@ Valid commands are:
 
     if xb_cfg: _debug('Found config file: ', xb_opt_config)
 
-    cmds = [XB_CMD_FULL, XB_CMD_INCR, XB_CMD_LIST, XB_CMD_STAT, XB_CMD_PREP,
+    cmds = [XB_CMD_CRON, XB_CMD_FULL, XB_CMD_INCR, XB_CMD_LIST, XB_CMD_STAT, XB_CMD_PREP,
             XB_CMD_APPL, XB_CMD_PRUNE, XB_CMD_META, XB_CMD_BINLOGS, XB_CMD_WIPE]
     if len(args) >= 1 and args[0] not in cmds:
         parser.error("Command not recognized, got '%s'. See more with --help" % args[0])
@@ -3115,7 +3163,7 @@ Valid commands are:
         _die("Encryption requires compression for now, support for ",
             "uncompressed encrypted backup will be added in the future")
 
-    if xb_opt_command in [XB_CMD_FULL, XB_CMD_INCR, XB_CMD_PREP, XB_CMD_APPL]:
+    if xb_opt_command in [XB_CMD_CRON, XB_CMD_FULL, XB_CMD_INCR, XB_CMD_PREP, XB_CMD_APPL]:
         _check_binary('innobackupex')
         _check_binary('xtrabackup')
 
@@ -3208,7 +3256,6 @@ def list_backups():
     l.reverse()
     xb_full_list = []
     unrecognized_backups = False
-
     for d in l:
         _debug("Checking full directory ", os.path.join(xb_stor_full, d))
         if os.path.isfile(os.path.join(xb_stor_full, d)):
@@ -3399,7 +3446,9 @@ if __name__ == "__main__":
         if not _check_in_progress():
             _create_lock_file()
 
-        if xb_opt_command == XB_CMD_FULL:
+        if xb_opt_command == XB_CMD_CRON:
+            run_xb_cron()
+        elif xb_opt_command == XB_CMD_FULL:
             run_xb_full()
         elif xb_opt_command == XB_CMD_INCR:
             run_xb_incr()
@@ -3470,6 +3519,7 @@ class PyxOptions(object):
     compress_with = 'gzip'
     apply_log = False
     prepare_memory = 128
+    incr_retention_sets = 2
     retention_sets = 2
     retention_months = 0
     retention_weeks = 0
@@ -3514,6 +3564,7 @@ class PyxOptions(object):
             "- /etc/pyxbackup.cnf\n"
             "- on the same directory of the script \n\n"
             "Valid commands are:\n\n"
+            "\tcron: Execute backupsby policy\n"
             "\tfull: Execute full backups\n"
             "\tincr: Execute incremental backups\n"
             "\tlist: List existing backups and additional information\n"
@@ -3600,6 +3651,8 @@ class PyxOptions(object):
                 'successful backup. (cli)'))
         parser.add_option('-e', '--restore-dir', dest='restore_dir', type="string",
             help='With command restore, specify where to restore selected backup (cli)')
+        parser.add_option('', '--retention-sets', dest='incr_retention_sets',
+            help='How many sets of incr backup under full backup to keep on storage, default 2')
         parser.add_option('-i', '--retention-sets', dest='retention_sets',
             help='How many sets of combined full + incr to keep on storage, default 2')
         parser.add_option('-j', '--retention-months', dest='retention_months', type="int",
@@ -3715,6 +3768,8 @@ class PyxOptions(object):
             restore_backup = options.restore_backup
         if options.restore_dir is not None:
             restore_dir = options.restore_dir
+        if options.incr_retention_sets and int(options.incr_retention_sets) > 0:
+            incr_retention_sets = int(options.incr_retention_sets)
         if options.retention_sets and int(options.retention_sets) > 0:
             retention_sets = int(options.retention_sets)
         if options.retention_months > 0:
@@ -3877,6 +3932,10 @@ class PyxOptions(object):
 
         if cfg.has_option(config_section, 'prepare_memory'):
             prepare_memory = int(cfg.get(config_section, 'prepare_memory'))
+
+        if cfg.has_option(config_section, 'incr_retention_sets'):
+            if int(cfg.get(config_section, 'incr_retention_sets')) > 0:
+                incr_retention_sets = int(cfg.get(config_section, 'incr_retention_sets'))
 
         if cfg.has_option(config_section, 'retention_sets'):
             if int(cfg.get(config_section, 'retention_sets')) > 0:
