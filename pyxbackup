@@ -62,6 +62,7 @@ xb_opt_encrypt = False
 xb_opt_encrypt_key_file = None
 xb_opt_extra_ibx_options = None
 xb_opt_purge_bitmaps = None
+xb_opt_api = False
 
 xb_hostname = None
 xb_user = None
@@ -2270,18 +2271,24 @@ def run_xb_list():
             s += ", incrementals: [%s]" % (', '.join(tmpstr))
         result_dict['backup_set'+str(i+1).zfill(2)].update(tmp_full_dict)
         result_dict['backup_set'+str(i+1).zfill(2)]['total_szie']=sizeof_fmt(total_size)
-        print s
+        if not xb_opt_api:
+            print s
+
+    if xb_opt_api:
+        print(result_dict)
 
     if xb_weekly_list is not None and len(xb_weekly_list) > 0:
-        print "# Weekly list: %s" % str(xb_weekly_list)
+        if not xb_opt_api:
+            print "# Weekly list: %s" % str(xb_weekly_list)
 
     if xb_monthly_list is not None and len(xb_monthly_list) > 0:
-        print "# Monthly list: %s" % str(xb_monthly_list)
+        if not xb_opt_api:
+            print "# Monthly list: %s" % str(xb_monthly_list)
 
     if xb_binlogs_list is not None and len(xb_binlogs_list) > 0:
-        print "# Binary logs from %s to %s, %d total" % (
-            xb_binlogs_list[0], xb_binlogs_list[-1], len(xb_binlogs_list))
-    return result_dict
+        if not xb_opt_api:
+            print "# Binary logs from %s to %s, %d total" % (
+                xb_binlogs_list[0], xb_binlogs_list[-1], len(xb_binlogs_list))
 
 def run_status():
     """Display status of last backup - excludes any currently running backup"""
@@ -2755,6 +2762,7 @@ def init():
     global xb_opt_stor_dir
     global xb_opt_work_dir
     global xb_opt_retention_binlogs
+    global xb_opt_api
     global xb_opt_compress
     global xb_opt_compress_with
     global xb_opt_apply_log
@@ -2856,6 +2864,8 @@ Valid commands are:
         help='Path to temporary backup work directory')
     parser.add_option('-b', '--retention-binlogs', dest='retention_binlogs', type="int",
         help='Binary log period retention, in days')
+    parser.add_option('', '--api', dest='api', type="int",
+        help='print json format instead of standard format')
     parser.add_option('', '--extra-ibx-options', dest='extra_ibx_options', type='string',
         help=('Specify additional innobackupex options, make sure to '
             'mind your quotes and avoid conflicts with --encrypt*, '
@@ -3022,6 +3032,9 @@ Valid commands are:
         if xb_cfg.has_option(xb_opt_config_section, 'retention_binlogs'):
             xb_opt_retention_binlogs = int(xb_cfg.get(xb_opt_config_section, 'retention_binlogs'))
 
+        if xb_cfg.has_option(xb_opt_config_section, 'api'):
+            xb_opt_api = int(xb_cfg.get(xb_opt_config_section, 'api'))
+
         if xb_cfg.has_option(xb_opt_config_section, 'binlog_binary'):
             xb_opt_binlog_binary = xb_cfg.get(xb_opt_config_section, 'binlog_binary')
 
@@ -3089,6 +3102,7 @@ Valid commands are:
     if options.stor_dir: xb_opt_stor_dir = options.stor_dir.rstrip('/')
     if options.work_dir: xb_opt_work_dir = options.work_dir.rstrip('/')
     if options.retention_binlogs: xb_opt_retention_binlogs = options.retention_binlogs
+    if options.api: xb_opt_api = options.api
     if options.compress: xb_opt_compress = options.compress
     if options.compress_with: xb_opt_compress_with = options.compress_with
     if options.notify_by_email: xb_opt_notify_by_email = options.notify_by_email
@@ -3520,6 +3534,7 @@ class PyxOptions(object):
     mysql_sock = None
     mysql_cnf = None
     retention_binlogs = False
+    api = False
     compress = False
     compress_with = 'gzip'
     apply_log = False
@@ -3555,7 +3570,7 @@ class PyxOptions(object):
     encrypt_key_file = None
     extra_ibx_options = None
     purge_bitmaps = None
-    
+ 
     def __init__(self):
 
         _init_log_file("/tmp/%s-%s" % (xb_curdate, XB_LOG_NAME))
@@ -3611,6 +3626,8 @@ class PyxOptions(object):
             help='Path to temporary backup work directory')
         parser.add_option('-b', '--retention-binlogs', dest='retention_binlogs', type="int",
             help='Binary log period retention, in days')
+        parser.add_option('', '--api', dest='api', type="int",
+             help='print json format instead of standard format')
         parser.add_option('', '--extra-ibx-options', dest='extra_ibx_options', type='string',
             help=('Specify additional innobackupex options, make sure to '
                 'mind your quotes and avoid conflicts with --encrypt*, '
