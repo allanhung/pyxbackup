@@ -1863,7 +1863,7 @@ def run_xb():
         xb_ibx_opts = (' --user=%s ' % xb_opt_mysql_user) + xb_ibx_opts
 
     if xb_opt_mysql_pass:
-        xb_ibx_opts = (' --password=%s ' % xb_opt_mysql_pass) + xb_ibx_opts
+        xb_ibx_opts = (" --password='%s' " % xb_opt_mysql_pass) + xb_ibx_opts
 
     if xb_opt_mysql_host:
         xb_ibx_opts = (' --host=%s ' % xb_opt_mysql_host) + xb_ibx_opts
@@ -2527,7 +2527,7 @@ def run_binlog_stream():
         run_cmd_s += " --user=%s" % xb_opt_mysql_user
 
     if xb_opt_mysql_pass is not None:
-        run_cmd_s += " --password=%s" % xb_opt_mysql_pass
+        run_cmd_s += " --password='%s'" % xb_opt_mysql_pass
 
     if xb_opt_mysql_host is not None:
         run_cmd_s += " --host=%s" % xb_opt_mysql_host
