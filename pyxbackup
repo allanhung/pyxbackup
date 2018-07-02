@@ -2251,7 +2251,7 @@ def run_xb_list():
     if xb_opt_remote_push_only:
         return _ssh_execute("%s list" % xb_opt_remote_script, True)
 
-    if len(xb_full_list) <= 0:
+    if len(xb_full_list) <= 0 and not xb_opt_api:
         _say("No backups currently available.")
 
     for i, f in enumerate(xb_full_list):
